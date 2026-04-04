@@ -499,16 +499,16 @@ function renderKaiTabs(){
   ball.className='ktab ktab-all'+(curKai==='all'?' on':'');
   ball.textContent='すべて'; ball.onclick=function(){setKai('all');};
   row.appendChild(ball);
-  var seenKaiNames={};
+  var seenIds={};
   kaiList.forEach(function(k){
     if(k.showInTab===false) return;
-    if(seenKaiNames[k.name]) return; // 重複名スキップ
-    seenKaiNames[k.name]=true;
+    if(seenIds[k.id]) return;
+    seenIds[k.id]=true;
     var cnt=curYear==='all'?allRecs.filter(function(r){return r.kaiId===k.id;}).length:allRecs.filter(function(r){return fyear(r.date)===curYear&&r.kaiId===k.id;}).length;
-    if(cnt===0 && curYear!=='all') return; // 該当年に記録なしの会は非表示
     var btn=document.createElement('button');
     btn.className='ktab'+(curKai===k.id?' on':'');
-    btn.textContent=k.name+' ('+cnt+')';
+    btn.textContent=k.name+(cnt?' ('+cnt+')':'');
+    btn.style.opacity=cnt?'1':'0.45';
     btn.onclick=(function(kid){return function(){setKai(kid);};})(k.id);
     row.appendChild(btn);
   });
