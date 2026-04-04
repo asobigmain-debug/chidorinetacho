@@ -477,9 +477,9 @@ function renderStats(){
 function getYears(){
   var yrs={};
   allRecs.forEach(function(r){if(r.date) yrs[fyear(r.date)]=1;});
-  var cur=new Date().getFullYear();
-  for(var y=2019;y<=cur+1;y++) yrs[String(y)]=1;
-  return Object.keys(yrs).sort().reverse();
+  // 記録がある年のみ（未来・空は除く）
+  var cur=String(new Date().getFullYear());
+  return Object.keys(yrs).filter(function(y){return y<=cur;}).sort().reverse();
 }
 function renderYearTabs(){
   var years=getYears();
@@ -499,9 +499,13 @@ function renderKaiTabs(){
   ball.className='ktab ktab-all'+(curKai==='all'?' on':'');
   ball.textContent='すべて'; ball.onclick=function(){setKai('all');};
   row.appendChild(ball);
+  var seenKaiNames={};
   kaiList.forEach(function(k){
     if(k.showInTab===false) return;
+    if(seenKaiNames[k.name]) return; // 重複名スキップ
+    seenKaiNames[k.name]=true;
     var cnt=curYear==='all'?allRecs.filter(function(r){return r.kaiId===k.id;}).length:allRecs.filter(function(r){return fyear(r.date)===curYear&&r.kaiId===k.id;}).length;
+    if(cnt===0 && curYear!=='all') return; // 該当年に記録なしの会は非表示
     var btn=document.createElement('button');
     btn.className='ktab'+(curKai===k.id?' on':'');
     btn.textContent=k.name+' ('+cnt+')';
