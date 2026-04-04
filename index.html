@@ -117,11 +117,11 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
 <body>
 <div class="hd">
   <div class="hd-ttl" id="app-title">ネタ帳</div>
-  <button class="btn btn-p btn-sm" onclick="go('write')" style="flex-shrink:0;">＋ 記録</button>
+  <button class="btn btn-p btn-sm" onclick="clearForm();go('write');" style="flex-shrink:0;">＋ 記録</button>
 </div>
 <nav class="nav">
   <button class="ntab on" onclick="go('home')">📋 一覧</button>
-  <button class="ntab" onclick="go('write')">✏️ 記録する</button>
+  <button class="ntab" onclick="clearForm();go('write');">✏️ 記録する</button>
   <button class="ntab" onclick="go('search')">🔍 検索</button>
   <button class="ntab" onclick="go('data')">💾 管理</button>
 </nav>
@@ -145,7 +145,15 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
 <div id="view-write" class="view main"><div class="card">
   <div class="sec" id="write-sec">記録する</div>
   <div class="fg">
-    <div><label class="lbl">日付</label><input type="date" id="w-date" class="inp" onchange="onDateChange_()"></div>
+    <div>
+    <label class="lbl">日付</label>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <select id="w-year" class="sel" style="flex:1;" onchange="syncDate_()"></select>
+      <select id="w-month" class="sel" style="flex:1;" onchange="syncDate_()"></select>
+      <select id="w-day" class="sel" style="flex:1;" onchange="syncDate_()"></select>
+    </div>
+    <input type="hidden" id="w-date">
+  </div>
     <div id="kai-select-wrap"><label class="lbl">会</label><select id="w-kai" class="sel" onchange="onKaiChange()"></select></div>
     <div id="kaisu-wrap" style="display:none;"><label class="lbl">第◯回（任意）</label><input type="number" id="w-kaisu" class="inp" placeholder="例：47　※空欄でも可" min="1"></div>
     <div><label class="lbl">当日の会名・タイトル（変更可）</label><input type="text" id="w-title" class="inp" placeholder=""></div>
@@ -281,6 +289,57 @@ var curId=null, curYear=null, curKai='all', homeSort='desc', searchSort='desc';
 var WD=['日','月','火','水','木','金','土'];
 
 function td(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function initDateSelects_(dateStr){
+  var d = dateStr ? new Date(dateStr+'T00:00:00') : new Date();
+  var year=d.getFullYear(), month=d.getMonth()+1, day=d.getDate();
+  var yy=document.getElementById('w-year');
+  var mm=document.getElementById('w-month');
+  var dd=document.getElementById('w-day');
+  if(!yy||!mm||!dd) return;
+  // 年（今年±3年）
+  yy.innerHTML='';
+  for(var y=year-3;y<=year+1;y++){
+    var o=document.createElement('option');
+    o.value=y; o.textContent=y+'年';
+    if(y===year) o.selected=true;
+    yy.appendChild(o);
+  }
+  // 月
+  mm.innerHTML='';
+  for(var m=1;m<=12;m++){
+    var o=document.createElement('option');
+    o.value=m; o.textContent=m+'月';
+    if(m===month) o.selected=true;
+    mm.appendChild(o);
+  }
+  // 日
+  updateDaySelect_(year, month, day);
+  syncDate_();
+}
+function updateDaySelect_(year, month, selDay){
+  var dd=document.getElementById('w-day'); if(!dd) return;
+  var maxDay=new Date(year,month,0).getDate();
+  dd.innerHTML='';
+  for(var d=1;d<=maxDay;d++){
+    var o=document.createElement('option');
+    o.value=d; o.textContent=d+'日';
+    if(d===selDay) o.selected=true;
+    dd.appendChild(o);
+  }
+}
+function syncDate_(){
+  var yy=document.getElementById('w-year');
+  var mm=document.getElementById('w-month');
+  var dd=document.getElementById('w-day');
+  if(!yy||!mm||!dd) return;
+  var y=parseInt(yy.value), m=parseInt(mm.value);
+  var curDay=parseInt(dd.value)||1;
+  updateDaySelect_(y, m, curDay);
+  var dateStr=y+'-'+('0'+m).slice(-2)+'-'+('0'+parseInt(dd.value)).slice(-2);
+  document.getElementById('w-date').value=dateStr;
+  onDateChange_();
+}
+function td(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 function fyear(s){ return s?String(s).slice(0,4):''; }
 function fdate(s){ if(!s)return''; var d=new Date(s+'T00:00:00'); return d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日（'+WD[d.getDay()]+'）'; }
 function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -308,19 +367,27 @@ function go(id){
   window.scrollTo(0,0);
   if(id==='home') renderHome();
   // 記録画面を開くとき、タイトルにデフォルト値をセット
-  if(id==='write' && !curId){
-    var el=document.getElementById('w-title');
-    if(el && !el.value && T && T.title) el.value=T.title;
-    // 大元モードでは選択中の会名をセット
-    if(!IS_KAI && el && !el.value){
-      var kid=document.getElementById('w-kai').value;
-      var k=kaiList.find(function(k){return k.id===kid;});
-      if(k) el.value=k.name;
+  if(id==='write'){
+    // 回数欄の表示を毎回更新
+    if(IS_KAI){
+      var myK=kaiList.find(function(k){return k.name===URL_KAI;});
+      var kw=document.getElementById('kaisu-wrap');
+      if(kw) kw.style.display=(myK&&myK.useKaisu)?'':'none';
+    } else {
+      onKaiChange();
     }
-    // 回数の自動計算
-    if(document.getElementById('kaisu-wrap') && document.getElementById('kaisu-wrap').style.display!=='none'){
-      var kEl=document.getElementById('w-kaisu');
-      if(kEl&&!kEl.value) autoCalcKaisu();
+    if(!curId){
+      var el=document.getElementById('w-title');
+      if(el && !el.value && T && T.title) el.value=T.title;
+      if(!IS_KAI && el && !el.value){
+        var kid=document.getElementById('w-kai').value;
+        var k=kaiList.find(function(k){return k.id===kid;});
+        if(k) el.value=k.name;
+      }
+      if(document.getElementById('kaisu-wrap') && document.getElementById('kaisu-wrap').style.display!=='none'){
+        var kEl=document.getElementById('w-kaisu');
+        if(kEl&&!kEl.value) autoCalcKaisu();
+      }
     }
   }
 }
@@ -344,7 +411,7 @@ window.addEventListener('load', async function(){
   var mt=document.querySelector('meta[name="apple-mobile-web-app-title"]');
   if(mt) mt.setAttribute('content',title);
   curYear = new Date().getFullYear().toString();
-  document.getElementById('w-date').value = td();
+  initDateSelects_(td());
   document.getElementById('export-note').textContent = IS_KAI ? 'この会のデータのみエクスポートします' : '現在の絞り込みのデータをエクスポートします';
 
   if(IS_KAI && T){
@@ -691,7 +758,7 @@ async function delRec(){
   renderStats();renderYearTabs();if(!IS_KAI)renderKaiTabs();renderHome();go('home');
 }
 function clearForm(){
-  document.getElementById('w-date').value=td();
+  initDateSelects_(td());
   // タイトルをデフォルト値に戻す
   var titleEl=document.getElementById('w-title');
   if(titleEl){
@@ -752,7 +819,7 @@ function editRec(id){
   cm(); var r=allRecs.find(function(x){return x.id===id;}); if(!r)return;
   setTimeout(function(){
     curId=r.id; document.getElementById('write-sec').textContent='記録を編集';
-    document.getElementById('w-date').value=r.date;
+    initDateSelects_(r.date);
     if(!IS_KAI){var sel=document.getElementById('w-kai');sel.value=r.kaiId||'';if(!sel.value&&sel.options.length)sel.selectedIndex=0;}
     var lines=(r.content||'').split('\n');
     // 編集時に回数・タイトルを復元
