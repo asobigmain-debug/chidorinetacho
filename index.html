@@ -145,10 +145,10 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
 <div id="view-write" class="view main"><div class="card">
   <div class="sec" id="write-sec">記録する</div>
   <div class="fg">
-    <div><label class="lbl">日付</label><input type="date" id="w-date" class="inp"></div>
+    <div><label class="lbl">日付</label><input type="date" id="w-date" class="inp" onchange="onDateChange_()"></div>
     <div id="kai-select-wrap"><label class="lbl">会</label><select id="w-kai" class="sel" onchange="onKaiChange()"></select></div>
     <div id="kaisu-wrap" style="display:none;"><label class="lbl">第◯回（任意）</label><input type="number" id="w-kaisu" class="inp" placeholder="例：47　※空欄でも可" min="1"></div>
-    <div><label class="lbl">当日の会名・タイトル（自由記載）</label><input type="text" id="w-title" class="inp" placeholder="※空欄でも可"></div>
+    <div><label class="lbl">当日の会名・タイトル（変更可）</label><input type="text" id="w-title" class="inp" placeholder=""></div>
     <div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <label class="lbl" style="margin:0;">根多（演者・演目）</label>
@@ -161,7 +161,6 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
       <div id="neta-rows"></div>
       <div class="prog" id="save-prog"></div>
     </div>
-    <div><label class="lbl">写真リンク</label><input type="url" id="w-photo" class="inp" placeholder="https://..."></div>
     <div class="br">
       <button class="btn btn-s btn-sm" id="del-btn" style="display:none;color:var(--grn);border-color:var(--grn);" onclick="delRec()">削除</button>
       <button class="btn btn-s btn-sm" onclick="clearForm()">クリア</button>
@@ -308,10 +307,34 @@ function go(id){
   document.getElementById('tab-area').style.display=id==='home'?'':'none';
   window.scrollTo(0,0);
   if(id==='home') renderHome();
+  // 記録画面を開くとき、タイトルにデフォルト値をセット
+  if(id==='write' && !curId){
+    var el=document.getElementById('w-title');
+    if(el && !el.value && T && T.title) el.value=T.title;
+    // 大元モードでは選択中の会名をセット
+    if(!IS_KAI && el && !el.value){
+      var kid=document.getElementById('w-kai').value;
+      var k=kaiList.find(function(k){return k.id===kid;});
+      if(k) el.value=k.name;
+    }
+    // 回数の自動計算
+    if(document.getElementById('kaisu-wrap') && document.getElementById('kaisu-wrap').style.display!=='none'){
+      var kEl=document.getElementById('w-kaisu');
+      if(kEl&&!kEl.value) autoCalcKaisu();
+    }
+  }
 }
 
 function showErr(msg){
   document.getElementById('rec-list').innerHTML='<div class="es"><div class="es-i">⚠️</div><div class="es-t">'+escH(msg)+'<br><br><button onclick="location.reload()" style="background:var(--grn);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">再読み込み</button></div></div>';
+}
+
+function onDateChange_(){
+  var k=IS_KAI?kaiList.find(function(k){return k.name===URL_KAI;}):kaiList.find(function(k){return k.id===document.getElementById('w-kai').value;});
+  if(k&&k.useKaisu){
+    var el=document.getElementById('w-kaisu');
+    if(el&&!el.value) autoCalcKaisu();
+  }
 }
 
 window.addEventListener('load', async function(){
@@ -464,6 +487,33 @@ function onKaiChange(){
   var k=kaiList.find(function(k){return k.id===kid;});
   var wrap=document.getElementById('kaisu-wrap');
   if(wrap) wrap.style.display=(k&&k.useKaisu)?'':'none';
+  if(k&&k.useKaisu) autoCalcKaisu();
+}
+
+// 回数自動計算：同じ会の記録から前後を推算
+function autoCalcKaisu(){
+  var dt=document.getElementById('w-date').value;
+  if(!dt) return;
+  var kid=IS_KAI?curKaiId:document.getElementById('w-kai').value;
+  if(!kid) return;
+  // 同じ会の記録を日付順に並べる
+  var recs=allRecs.filter(function(r){return r.kaiId===kid&&r.content&&r.content.slice(0,1)==='◆';})
+    .sort(function(a,b){return a.date>b.date?1:-1;});
+  if(!recs.length) return;
+  // 日付より前の最新レコードの回数＋1
+  var prev=null;
+  for(var i=recs.length-1;i>=0;i--){
+    if(recs[i].date<dt){prev=recs[i];break;}
+  }
+  if(prev){
+    var m=prev.content.match(/◆第(\d+)回/);
+    if(m){
+      var nextNum=parseInt(m[1])+1;
+      // 既に入力済みでなければセット
+      var el=document.getElementById('w-kaisu');
+      if(el&&!el.value) el.value=nextNum;
+    }
+  }
 }
 function addKai(){
   var name=document.getElementById('new-kai-inp').value.trim();
@@ -593,7 +643,7 @@ async function saveRec(){
   var kid=IS_KAI?curKaiId:document.getElementById('w-kai').value; if(!kid){toast('会を選んでください');return;}
   var tval=document.getElementById('w-title').value.trim();
   var content=(tval?'▼'+tval+'\n':'')+getNetaContent();
-  var photo=document.getElementById('w-photo').value;
+  var photo='';
   var btn=document.getElementById('save-btn'); btn.textContent='保存中…'; btn.disabled=true;
   var prog=document.getElementById('save-prog');
   try {
@@ -618,7 +668,7 @@ async function saveRec(){
     document.getElementById('del-btn').style.display='none'; resetRows_();
     document.getElementById('w-title').value='';
     if(document.getElementById('w-kaisu')) document.getElementById('w-kaisu').value='';
-    document.getElementById('w-photo').value='';
+    // photo欄なし
     document.getElementById('write-sec').textContent='記録する'; curYear=fyear(dt);
     setTimeout(async function(){
       var recs=await gasGet('getAllRecords'); var all=Array.isArray(recs)?recs:[];
@@ -641,10 +691,23 @@ async function delRec(){
   renderStats();renderYearTabs();if(!IS_KAI)renderKaiTabs();renderHome();go('home');
 }
 function clearForm(){
-  document.getElementById('w-date').value=td(); document.getElementById('w-title').value=''; resetRows_();
+  document.getElementById('w-date').value=td();
+  // タイトルをデフォルト値に戻す
+  var titleEl=document.getElementById('w-title');
+  if(titleEl){
+    if(IS_KAI && T) titleEl.value=T.title;
+    else titleEl.value='';
+  }
+  resetRows_();
   if(document.getElementById('w-kaisu')) document.getElementById('w-kaisu').value='';
-  document.getElementById('w-photo').value=''; document.getElementById('del-btn').style.display='none';
+  document.getElementById('del-btn').style.display='none';
   document.getElementById('write-sec').textContent='記録する'; curId=null;
+  // 回数の自動計算
+  setTimeout(function(){
+    if(document.getElementById('kaisu-wrap') && document.getElementById('kaisu-wrap').style.display!=='none'){
+      autoCalcKaisu();
+    }
+  },100);
 }
 
 function openModal(id){
@@ -706,7 +769,7 @@ function editRec(id){
       document.getElementById('w-title').value='';
       setNetaContent(eLines.slice(eIdx).join('\n'));
     }
-    document.getElementById('w-photo').value=r.photo||'';
+    // photo欄なし
     document.getElementById('del-btn').style.display=''; go('write');
   },200);
 }
