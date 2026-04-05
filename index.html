@@ -286,18 +286,22 @@ var T = IS_KAI ? KAI_THEMES[URL_KAI] : null;
 })();
 
 /* GAS通信 - iOSに最適化 */
-function gasGet(action, params) {
+function gasGet(action, params, timeoutMs) {
   params = params || {};
+  timeoutMs = timeoutMs || 15000; // デフォルト15秒タイムアウト
   var url = GAS_URL + '?action=' + encodeURIComponent(action);
   Object.keys(params).forEach(function(k){
     url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(String(params[k]));
   });
-  return fetch(url)
-    .then(function(r){ return r.text(); })
-    .then(function(t){
+  var timeout = new Promise(function(_, rej){
+    setTimeout(function(){ rej(new Error('timeout')); }, timeoutMs);
+  });
+  return Promise.race([
+    fetch(url).then(function(r){ return r.text(); }).then(function(t){
       try { return JSON.parse(t); } catch(e) { return {_raw: t}; }
-    })
-    .catch(function(e){ return {error: String(e)}; });
+    }),
+    timeout
+  ]).catch(function(e){ return {error: String(e)}; });
 }
 
 // 連続講談GASへの通信
@@ -491,7 +495,7 @@ window.addEventListener('load', async function(){
   // 各会専用モードの回数欄は読み込み後に制御（下のinitKaisuWrap_で処理）
 
   try {
-    var kais = await gasGet('getKaiList');
+    var kais = await gasGet('getKaiList', {}, 20000);
     if(!kais || kais.error || !Array.isArray(kais)){
       showErr('GAS通信エラー: ' + (kais&&kais.error||'データを取得できませんでした'));
       return;
@@ -521,7 +525,7 @@ window.addEventListener('load', async function(){
     // 各会専用モードで回数欄を制御
     // kaisu-wrapは常時表示のため制御不要
 
-    var recs = await gasGet('getAllRecords');
+    var recs = await gasGet('getAllRecords', {}, 20000);
     if(!recs || recs.error || !Array.isArray(recs)){
       showErr('記録データ取得エラー: ' + (recs&&recs.error||'データを取得できませんでした'));
       return;
@@ -541,9 +545,11 @@ window.addEventListener('load', async function(){
       allRecs = recs;
     }
 
-    // ロック状態読み込み
-    var ls = await gasGet('getLockStatus');
-    if(ls && Array.isArray(ls.lockedKeys)) lockedKeys = ls.lockedKeys;
+    // ロック状態読み込み（失敗しても続行）
+    try {
+      var ls = await gasGet('getLockStatus', {}, 5000); // 5秒タイムアウト
+      if(ls && Array.isArray(ls.lockedKeys)) lockedKeys = ls.lockedKeys;
+    } catch(le){ /* ロック取得失敗は無視 */ }
     renderStats(); renderYearTabs(); renderHome();
   } catch(e){
     showErr('エラー: ' + String(e.message||e));
