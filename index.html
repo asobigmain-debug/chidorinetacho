@@ -464,7 +464,12 @@ function go(id){
 }
 
 function showErr(msg){
-  document.getElementById('rec-list').innerHTML='<div class="es"><div class="es-i">⚠️</div><div class="es-t">'+escH(msg)+'<br><br><button onclick="location.reload()" style="background:var(--grn);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">再読み込み</button></div></div>';
+  document.getElementById('rec-list').innerHTML=
+    '<div class="es"><div class="es-i">⚠️</div><div class="es-t">'
+    +escH(msg)
+    +'<br><br>'
+    +'<button onclick="location.reload()" style="background:var(--grn);color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-size:1rem;">🔄 再読み込み</button>'
+    +'</div></div>';
 }
 
 function onDateChange_(){
@@ -477,6 +482,11 @@ function onDateChange_(){
 }
 
 window.addEventListener('load', async function(){
+  // 全体ロードを30秒でタイムアウト
+  var _loadTimer=setTimeout(function(){
+    showErr('GASとの通信がタイムアウトしました。\nGASが正しくデプロイされているか確認してください。');
+  }, 30000);
+  try {
   var title = T ? T.title : 'ネタ帳';
   document.getElementById('app-title').textContent = title;
   document.title = title;
@@ -497,7 +507,7 @@ window.addEventListener('load', async function(){
   try {
     var kais = await gasGet('getKaiList', {}, 20000);
     if(!kais || kais.error || !Array.isArray(kais)){
-      showErr('GAS通信エラー: ' + (kais&&kais.error||'データを取得できませんでした'));
+      showErr('GAS通信エラー\n\nエラー: ' + (kais&&kais.error||'データを取得できませんでした') + '\n\nGAS URLが正しいか、デプロイが完了しているか確認してください。');
       return;
     }
     // 固定kaiを先に確保し、残りを重複除去して結合
@@ -550,10 +560,13 @@ window.addEventListener('load', async function(){
       var ls = await gasGet('getLockStatus', {}, 5000); // 5秒タイムアウト
       if(ls && Array.isArray(ls.lockedKeys)) lockedKeys = ls.lockedKeys;
     } catch(le){ /* ロック取得失敗は無視 */ }
+    clearTimeout(_loadTimer);
     renderStats(); renderYearTabs(); renderHome();
   } catch(e){
-    showErr('エラー: ' + String(e.message||e));
+    clearTimeout(_loadTimer);
+    showErr('エラー: ' + String(e.message||e) + '\n\nGASのデプロイURLを確認し、再読み込みしてください。');
   }
+  } finally { clearTimeout(_loadTimer); }
 });
 
 function renderStats(){
