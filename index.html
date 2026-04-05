@@ -28,6 +28,7 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
 .year-row::-webkit-scrollbar{display:none;}
 .ytab{padding:4px 12px;border-radius:12px;font-size:0.74rem;cursor:pointer;border:1.5px solid rgba(46,107,62,0.5);background:rgba(255,255,255,0.08);color:rgba(242,245,240,0.6);white-space:nowrap;font-family:"Noto Sans JP",sans-serif;transition:all 0.15s;flex-shrink:0;}
 .ytab:hover{background:rgba(255,255,255,0.15);color:#fff;}
+.ytab-locked{opacity:0.7;border-style:dashed!important;}
 .ytab.on{background:var(--grn);color:#fff;border-color:var(--grn);}
 .ytab-all{border-color:rgba(136,176,75,0.7);color:rgba(242,245,240,0.8);}
 .ytab-all.on{background:var(--gold2);color:var(--ink);border-color:var(--gold2);}
@@ -138,20 +139,32 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
   <div class="sort-bar">
     <button class="sort-btn on" id="sort-new" onclick="setSortHome('desc',this)">▼ 新しい順</button>
     <button class="sort-btn" id="sort-old" onclick="setSortHome('asc',this)">▲ 古い順</button>
+    <button class="sort-btn" id="bulk-toggle-btn" onclick="toggleBulkMode_()" style="margin-left:auto;background:none;color:var(--grn);border-color:var(--grn);">☑ 一括選択</button>
   </div>
   <div class="cnt-txt" id="home-cnt"></div>
+  <div id="bulk-panel" style="display:none;background:var(--bdr);border:1px solid var(--grn);border-radius:8px;padding:10px;margin-bottom:8px;">
+    <div style="font-size:0.82rem;color:var(--ink2);margin-bottom:6px;font-weight:bold;">選択した記録を移動する会：</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <select id="bulk-kai-sel" class="sel" style="flex:1;min-width:120px;"></select>
+      <button class="btn btn-p btn-sm" onclick="executeBulkMove_()">移動実行</button>
+      <button class="btn btn-s btn-sm" onclick="selectAllBulk_()">全選択</button>
+      <button class="btn btn-s btn-sm" onclick="clearBulkSel_()">解除</button>
+    </div>
+    <div id="bulk-count" style="font-size:0.75rem;margin-top:4px;color:var(--grn);"></div>
+  </div>
   <div id="rec-list"><div class="es"><div class="es-i">⏳</div><div class="es-t">読み込み中…</div></div></div>
 </div>
 <div id="view-write" class="view main"><div class="card">
   <div class="sec" id="write-sec">記録する</div>
   <div class="fg">
     <div>
-    <label class="lbl">日付</label>
-    <div style="display:flex;gap:6px;align-items:center;">
+    <label class="lbl">日付 <button type="button" id="date-mode-btn" onclick="toggleDateMode_()" style="font-size:0.7rem;padding:2px 8px;margin-left:8px;border:1px solid var(--grn);border-radius:4px;background:none;color:var(--grn);cursor:pointer;">手入力に切替</button></label>
+    <div id="date-sel-wrap" style="display:flex;gap:6px;align-items:center;">
       <select id="w-year" class="sel" style="flex:1;" onchange="syncDate_()"></select>
       <select id="w-month" class="sel" style="flex:1;" onchange="syncDate_()"></select>
       <select id="w-day" class="sel" style="flex:1;" onchange="syncDate_()"></select>
     </div>
+    <input type="text" id="date-text-inp" class="inp" placeholder="例：2019-01-05" style="display:none;" oninput="syncDateText_()">
     <input type="hidden" id="w-date">
   </div>
     <div id="kai-select-wrap"><label class="lbl">会</label><select id="w-kai" class="sel" onchange="onKaiChange()"></select></div>
@@ -193,7 +206,13 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
       <button class="btn btn-s btn-sm" onclick="dlJSON()">📥 JSON</button>
     </div>
   </div>
-  <div class="card"><div class="sec">インポート</div>
+  <div class="card"><div class="sec">年ロック管理</div>
+    <div id="lock-section" style="margin-bottom:16px;">
+      <div style="font-size:0.8rem;color:var(--ink2);margin-bottom:8px;">年単位で記録をロック（編集・削除不可）します。大元ネタ帳からのみ操作できます。</div>
+      <div id="lock-year-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
+      <button class="btn btn-s btn-sm" onclick="renderLockYears_()">🔄 更新</button>
+    </div>
+    <div class="sec">インポート</div>
     <div class="fg">
       <div><div class="lbl">JSON</div><div class="drop-area"><input type="file" accept=".json" onchange="importFile(this,'json')"><div class="drop-txt">📂 JSONを選択</div></div><div class="prog" id="imp-prog-json"></div></div>
       <div><div class="lbl">CSV</div><div class="drop-area"><input type="file" accept=".csv" onchange="importFile(this,'csv')"><div class="drop-txt">📂 CSVを選択</div></div><div class="prog" id="imp-prog-csv"></div></div>
@@ -225,6 +244,16 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
 
 <script>
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbyXmfliY61KHr-0bpFli9Z4FjcgvRfqKou3tPbREb81HBpGBEf7SM1CufSHUbM7FpLKyg/exec';
+
+// 固定会（削除不可・kaiID変更不可・名前変更のみ可）
+var FIXED_KAIS = [
+  {id:'k1',                   name:'月曜'},
+  {id:'k1774769940084',       name:'水曜'},
+  {id:'k1774770479091',       name:'木曜'},
+  {id:'k1774770913871',       name:'連続／365'},
+  {id:'k1774770482860',       name:'連続／テレワーク寄席'},
+];
+function isFixedKai(id){ return FIXED_KAIS.some(function(f){return f.id===id;}); }
 // 連続講談専用GAS（別スプレッドシート）
 var RENZOUKU_URL = 'https://script.google.com/macros/s/AKfycbwMf_6496fBdyTaoDt3Nvv0UkVp0h2uPBFXww5t9JvT3se7_M_S1SVcdgoMvpX1zM-5/exec';
 
@@ -284,7 +313,11 @@ async function sendChunks_(key, data) {
   return {count:n};
 }
 
-var allRecs=[], kaiList=[], curKaiId=null, renzoukuRecs=[];
+var allRecs=[], kaiList=[], curKaiId=null, renzoukuRecs=[], lockedKeys=[];
+function isLockedRec(r){
+  var kid=r.kaiId||''; var yr=fyear(r.date)||'';
+  return lockedKeys.indexOf(kid+'_'+yr)>=0;
+}
 var curId=null, curYear=null, curKai='all', homeSort='desc', searchSort='desc';
 var WD=['日','月','火','水','木','金','土'];
 
@@ -298,7 +331,8 @@ function initDateSelects_(dateStr){
   if(!yy||!mm||!dd) return;
   // 年（今年±3年）
   yy.innerHTML='';
-  for(var y=year-3;y<=year+1;y++){
+  var START_YEAR=2019;
+  for(var y=START_YEAR;y<=year+3;y++){
     var o=document.createElement('option');
     o.value=y; o.textContent=y+'年';
     if(y===year) o.selected=true;
@@ -325,6 +359,30 @@ function updateDaySelect_(year, month, selDay){
     o.value=d; o.textContent=d+'日';
     if(d===selDay) o.selected=true;
     dd.appendChild(o);
+  }
+}
+function toggleDateMode_(){
+  var selWrap=document.getElementById('date-sel-wrap');
+  var textInp=document.getElementById('date-text-inp');
+  var btn=document.getElementById('date-mode-btn');
+  if(textInp.style.display==='none'){
+    textInp.style.display='';
+    selWrap.style.display='none';
+    textInp.value=document.getElementById('w-date').value||'';
+    btn.textContent='セレクトに切替';
+  } else {
+    textInp.style.display='none';
+    selWrap.style.display='flex';
+    var v=textInp.value.trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(v)) initDateSelects_(v);
+    btn.textContent='手入力に切替';
+  }
+}
+function syncDateText_(){
+  var v=document.getElementById('date-text-inp').value.trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(v)){
+    document.getElementById('w-date').value=v;
+    onDateChange_();
   }
 }
 function syncDate_(){
@@ -366,6 +424,7 @@ function go(id){
   document.getElementById('tab-area').style.display=id==='home'?'':'none';
   window.scrollTo(0,0);
   if(id==='home') renderHome();
+  if(id==='data'&&!IS_KAI) renderLockYears_();
   // 記録画面を開くとき、タイトルにデフォルト値をセット
   if(id==='write'){
     // 回数欄の表示を毎回更新
@@ -428,11 +487,27 @@ window.addEventListener('load', async function(){
       showErr('GAS通信エラー: ' + (kais&&kais.error||'データを取得できませんでした'));
       return;
     }
-    kaiList = kais;
-    kaiList.forEach(function(k){
+    // 固定kaiを先に確保し、残りを重複除去して結合
+    var seenId={}, seenName={}, cleanKais=[];
+    // 固定kaiを先頭に配置
+    FIXED_KAIS.forEach(function(fk){
+      var exist=kais.find(function(k){return k.id===fk.id;});
+      var k=exist ? Object.assign({},exist) : {id:fk.id,name:fk.name,order:cleanKais.length+1,showInTab:true,fixed:true};
+      k.fixed=true; k.showInTab=true;
+      if(k.showInTab===undefined) k.showInTab=true;
+      seenId[k.id]=true; seenName[k.name]=true;
+      cleanKais.push(k);
+    });
+    // 固定以外を追加
+    kais.forEach(function(k){
+      if(!k.id || seenId[k.id]) return;
+      if(seenName[k.name]) return;
+      seenId[k.id]=true; seenName[k.name]=true;
       if(k.showInTab===undefined) k.showInTab=true;
       if(k.fixed===undefined) k.fixed=false;
+      cleanKais.push(k);
     });
+    kaiList = cleanKais;
     if(!IS_KAI){ buildKaiSelect(); renderKaiTabs(); }
     // 各会専用モードで回数欄を制御
     if(IS_KAI){
@@ -461,6 +536,9 @@ window.addEventListener('load', async function(){
       allRecs = recs;
     }
 
+    // ロック状態読み込み
+    var ls = await gasGet('getLockStatus');
+    if(ls && Array.isArray(ls.lockedKeys)) lockedKeys = ls.lockedKeys;
     renderStats(); renderYearTabs(); renderHome();
   } catch(e){
     showErr('エラー: ' + String(e.message||e));
@@ -487,7 +565,9 @@ function renderYearTabs(){
   var html='<button class="ytab ytab-all'+(curYear==='all'?' on':'')+'" onclick="setYear(\'all\')">全年<span style="font-size:.62rem;margin-left:2px;opacity:.75;">('+allRecs.length+')</span></button>';
   years.forEach(function(y){
     var cnt=allRecs.filter(function(r){return fyear(r.date)===y;}).length;
-    html+='<button class="ytab'+(curYear===y?' on':'')+'" onclick="setYear(\''+y+'\')">'+y+'<span style="font-size:.62rem;margin-left:2px;opacity:.75;">('+cnt+')</span></button>';
+    // この年に1件でもロックがあればマーク
+    var isLkd=lockedKeys.some(function(k){return k.endsWith('_'+y);});
+    html+='<button class="ytab'+(curYear===y?' on':'')+(isLkd?' ytab-locked':'')+'" onclick="setYear(\''+y+'\')">'+y+(isLkd?' 🔒':'')+'<span style="font-size:.62rem;margin-left:2px;opacity:.75;">('+cnt+')</span></button>';
   });
   document.getElementById('year-row').innerHTML=html;
 }
@@ -517,7 +597,8 @@ function renderKaiTabs(){
 }
 function setKai(id){ curKai=id; renderKaiTabs(); renderHome(); }
 
-function openKaiMgr(){ renderKaiList(); document.getElementById('new-kai-inp').value=''; document.getElementById('mo-kai').classList.add('on'); }
+function openKaiMgr(){
+  if(!IS_KAI) renderLockYears_(); renderKaiList(); document.getElementById('new-kai-inp').value=''; document.getElementById('mo-kai').classList.add('on'); }
 function renderKaiList(){
   var area=document.getElementById('kai-list'); area.innerHTML='';
   kaiList.forEach(function(k){
@@ -533,7 +614,14 @@ function renderKaiList(){
     bk.style.cssText=k.useKaisu?'color:var(--grn);border-color:var(--grn);':'';
     bk.onclick=(function(kid){return function(){toggleKaisu(kid);};})(k.id);
     btns.appendChild(bk);
-    if(!k.fixed){
+    if(isFixedKai(k.id)){
+      // 固定kaiは名前変更のみ
+      var be=document.createElement('button'); be.className='ib'; be.textContent='名前変更';
+      be.onclick=(function(kid){return function(){renameKai(kid);};})(k.id);
+      var lk=document.createElement('span'); lk.textContent='🔒'; lk.title='固定';
+      lk.style.cssText='font-size:1rem;margin-left:4px;opacity:0.6;';
+      btns.appendChild(be); btns.appendChild(lk);
+    } else {
       var bu=document.createElement('button'); bu.className='ib'; bu.textContent='▲'; bu.onclick=(function(kid){return function(){moveKai(kid,-1);};})(k.id);
       var bd=document.createElement('button'); bd.className='ib'; bd.textContent='▼'; bd.onclick=(function(kid){return function(){moveKai(kid,1);};})(k.id);
       var be=document.createElement('button'); be.className='ib'; be.textContent='編集'; be.onclick=(function(kid){return function(){renameKai(kid);};})(k.id);
@@ -543,7 +631,13 @@ function renderKaiList(){
     item.appendChild(nm); item.appendChild(btns); area.appendChild(item);
   });
 }
-async function saveKais_(cb){ await gasGet('saveKaiList',{data:JSON.stringify(kaiList)}); if(cb)cb(); }
+async function saveKais_(cb){
+  // 保存前にも重複除去
+  var sId={},sName=[],clean=[];
+  kaiList.forEach(function(k){if(!sId[k.id]&&sName.indexOf(k.name)<0){sId[k.id]=true;sName.push(k.name);clean.push(k);}});
+  kaiList=clean;
+  await gasGet('saveKaiList',{data:JSON.stringify(kaiList)}); if(cb)cb();
+}
 
 function toggleKaisu(id){
   var k=kaiList.find(function(k){return k.id===id;}); if(!k)return;
@@ -608,9 +702,10 @@ function renameKai(id){
   saveKais_(function(){toast('✓ 名前を変更しました');});
 }
 function deleteKai(id){
+  if(isFixedKai(id)){toast('この会は固定のため削除できません');return;}
   var k=kaiList.find(function(k){return k.id===id;}); if(!k)return;
   var cnt=allRecs.filter(function(r){return r.kaiId===id;}).length;
-  if(!confirm('「'+k.name+'」を削除しますか？'+(cnt?'\n(記録'+cnt+'件の会名が消えます)':'')))return;
+  if(!confirm('「'+k.name+'」を削除してよろしいですか？'+(cnt?'\n(記録'+cnt+'件の会名が消えます)':'')))return;
   kaiList=kaiList.filter(function(x){return x.id!==id;});
   if(curKai===id)curKai='all';
   renderKaiList(); buildKaiSelect(); renderKaiTabs(); renderHome();
@@ -644,6 +739,139 @@ function renderHome(){
   document.getElementById('s-filtered').textContent=recs.length;
   document.getElementById('rec-list').innerHTML=recs.length?recs.map(rowHtml).join(''):'<div class="es"><div class="es-i">📗</div><div class="es-t">記録がありません</div></div>';
 }
+// === 年ロック管理（会ごと×年ごと）===
+function renderLockYears_(){
+  var el=document.getElementById('lock-year-list'); if(!el)return;
+  var years=getYears(); el.innerHTML='';
+  if(!years.length){el.innerHTML='<div style="font-size:0.8rem;color:#888;">記録がありません</div>';return;}
+
+  if(IS_KAI){
+    // 個別アプリ：自分の会のロック状態を表示のみ（変更は大元から）
+    var myK=kaiList.find(function(k){return k.name===URL_KAI;});
+    if(!myK){el.innerHTML='<div style="color:#888;font-size:0.8rem;">会情報が取得できません</div>';return;}
+    var found=false;
+    years.forEach(function(y){
+      var key=myK.id+'_'+y;
+      var isLkd=lockedKeys.indexOf(key)>=0;
+      var cnt=allRecs.filter(function(r){return fyear(r.date)===y;}).length;
+      if(!cnt)return;
+      found=true;
+      var chip=document.createElement('div');
+      chip.style.cssText='display:inline-flex;align-items:center;gap:4px;background:'+(isLkd?'#ebebeb':'#f8f8f4')+';border:1px solid '+(isLkd?'#aaa':'#ccc')+';border-radius:6px;padding:3px 10px;font-size:0.82rem;margin:2px;';
+      chip.textContent=y+'年（'+cnt+'件）'+(isLkd?' 🔒':'');
+      el.appendChild(chip);
+    });
+    if(!found) el.innerHTML='<div style="font-size:0.8rem;color:#888;">記録がありません</div>';
+    var note=document.createElement('div');
+    note.style.cssText='font-size:0.75rem;color:#999;margin-top:6px;';
+    note.textContent='※ ロックの変更は大元ネタ帳から行ってください';
+    el.appendChild(note);
+    return;
+  }
+
+  // 大元：会ごと×年ごとのロック管理
+  kaiList.forEach(function(k){
+    var kYears=years.filter(function(y){
+      return allRecs.some(function(r){return r.kaiId===k.id&&fyear(r.date)===y;});
+    });
+    if(!kYears.length)return;
+    var section=document.createElement('div');
+    section.style.cssText='margin-bottom:14px;';
+    var h=document.createElement('div');
+    h.style.cssText='font-weight:bold;font-size:0.85rem;margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--bdr2);color:var(--ink);';
+    h.textContent=k.name;
+    section.appendChild(h);
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;flex-wrap:wrap;gap:6px;';
+    kYears.forEach(function(y){
+      var key=k.id+'_'+y;
+      var isLkd=lockedKeys.indexOf(key)>=0;
+      var cnt=allRecs.filter(function(r){return r.kaiId===k.id&&fyear(r.date)===y;}).length;
+      var chip=document.createElement('div');
+      chip.style.cssText='display:flex;align-items:center;gap:5px;background:'+(isLkd?'#ebebeb':'#f8f4e8')+';border:1px solid '+(isLkd?'#999':'var(--grn)')+';border-radius:6px;padding:4px 8px;';
+      chip.innerHTML='<span style="font-size:0.82rem;font-weight:bold;">'+y+'年</span><span style="font-size:0.72rem;color:#888;">('+cnt+'件)</span>';
+      var btn=document.createElement('button');
+      btn.style.cssText='font-size:0.7rem;padding:2px 7px;border:1px solid;border-radius:4px;cursor:pointer;background:none;'+(isLkd?'color:#c0392b;border-color:#c0392b;':'color:var(--grn);border-color:var(--grn);');
+      btn.textContent=isLkd?'🔓 解除':'🔒 ロック';
+      btn.onclick=(function(kid,yr,lkd){return function(){toggleYearLock_(kid,yr,lkd);};})(k.id,y,isLkd);
+      chip.appendChild(btn); row.appendChild(chip);
+    });
+    section.appendChild(row); el.appendChild(section);
+  });
+}
+
+async function toggleYearLock_(kaiId, year, isLocked){
+  var kName=(kaiList.find(function(k){return k.id===kaiId;})||{}).name||kaiId;
+  var msg=isLocked
+    ?'「'+kName+'」'+year+'年のロックを解除してよろしいですか？'
+    :'「'+kName+'」'+year+'年をロックしてよろしいですか？\n（編集・削除ができなくなります）';
+  if(!confirm(msg))return;
+  toast((isLocked?'解除':'ロック')+'中…');
+  var res=await gasGet(isLocked?'unlockYear':'lockYear',{kaiId:kaiId,year:year});
+  if(res&&Array.isArray(res.lockedKeys)){
+    lockedKeys=res.lockedKeys;
+    renderLockYears_(); renderYearTabs(); renderHome();
+    toast('✓ 「'+kName+'」'+year+'年を'+(isLocked?'解除':'ロック')+'しました');
+  } else {
+    toast('エラー: '+(res&&res.error||'通信失敗'));
+  }
+}
+
+// === 一括選択モード ===
+var bulkMode_=false, bulkSel_=new Set();
+function toggleBulkMode_(){
+  bulkMode_=!bulkMode_; bulkSel_.clear();
+  document.getElementById('bulk-panel').style.display=bulkMode_?'':'none';
+  document.getElementById('bulk-toggle-btn').textContent=bulkMode_?'✕ 選択終了':'☑ 一括選択';
+  // 一括移動先セレクト更新
+  if(bulkMode_){
+    var sel=document.getElementById('bulk-kai-sel'); sel.innerHTML='';
+    kaiList.forEach(function(k){
+      var o=document.createElement('option'); o.value=k.id; o.textContent=k.name; sel.appendChild(o);
+    });
+  }
+  updateBulkCount_(); renderHome();
+}
+function updateBulkCount_(){
+  var el=document.getElementById('bulk-count');
+  if(el) el.textContent=bulkSel_.size+'件選択中';
+}
+function toggleBulkSel_(id){
+  if(bulkSel_.has(id)) bulkSel_.delete(id); else bulkSel_.add(id);
+  updateBulkCount_(); renderHome();
+}
+function selectAllBulk_(){
+  getFiltered().forEach(function(r){bulkSel_.add(r.id);}); updateBulkCount_(); renderHome();
+}
+function clearBulkSel_(){
+  bulkSel_.clear(); updateBulkCount_(); renderHome();
+}
+async function executeBulkMove_(){
+  if(bulkSel_.size===0){toast('記録を選択してください');return;}
+  var toKai=document.getElementById('bulk-kai-sel').value;
+  var toName=kaiList.find(function(k){return k.id===toKai;}); toName=toName?toName.name:toKai;
+  if(!confirm(bulkSel_.size+'件を「'+toName+'」に移動してよろしいですか？'))return;
+  toast('移動中…');
+  for(var id of bulkSel_){
+    var r=allRecs.find(function(x){return x.id===id;}); if(!r) continue;
+    var oldKai=r.kaiId; r.kaiId=toKai;
+    // GASに保存（contentをチャンク送信）
+    var content=r.content||'';
+    var SZ=1500, parts=[], key='mv_'+Date.now()+'_'+id;
+    for(var i=0;i<content.length;i+=SZ) parts.push(content.slice(i,i+SZ));
+    if(parts.length===0) parts=[''];
+    for(var s=0;s<parts.length;s++) await gasGet('saveTemp',{key:key,part:parts[s],index:s});
+    await gasGet('saveRecord',{id:id,date:r.date,kaiId:toKai,key:key,parts:parts.length,photo:r.photo||''});
+  }
+  bulkSel_.clear(); bulkMode_=false;
+  document.getElementById('bulk-panel').style.display='none';
+  document.getElementById('bulk-toggle-btn').textContent='☑ 一括選択';
+  var recs=await gasGet('getAllRecords');
+  if(Array.isArray(recs)) allRecs=IS_KAI?recs.filter(function(r){return r.kaiId===curKaiId;}):recs;
+  renderStats();renderYearTabs();if(!IS_KAI)renderKaiTabs();renderHome();
+  toast('✓ 移動完了');
+}
+
 function rowHtml(r){
   var lines=r.content?r.content.split('\n'):[];
   var tl='',nl=lines;
@@ -660,7 +888,13 @@ function rowHtml(r){
   if(lines.length&&lines[0]&&lines[0].slice(0,1)==='◆'){kaisuLine=lines[0].slice(1);nl=lines.slice(1);if(nl.length&&nl[0]&&nl[0].charAt(0)==='▼'){tl=nl[0].slice(1);nl=nl.slice(1);}}
   var kaisuBadge=kaisuLine?'<span class="row-badge" style="background:rgba(107,140,58,0.2);font-weight:600;">'+escH(kaisuLine)+'</span>':'';
   var top='<div class="row-top">'+kaisuBadge+(tl?'<span class="row-ttl">'+escH(tl)+'</span>':'')+(kn?'<span class="row-badge">'+escH(kn)+'</span>':'')+'<span class="row-date">'+fdate(r.date)+'</span></div>';
-  return '<div class="row" onclick="openModal(\''+r.id+'\')">'+ top+body+'</div>';
+  var isLocked=isLockedRec(r);
+  var lockBadge=isLocked?'<span style="font-size:0.75rem;color:#888;margin-left:4px;">🔒</span>':'';
+  if(bulkMode_&&!isLocked){
+    var chk='<input type="checkbox" style="width:20px;height:20px;margin-right:8px;flex-shrink:0;" '+(bulkSel_.has(r.id)?'checked':'')+' onclick="event.stopPropagation();toggleBulkSel_(\''+r.id+'\');">';
+    return '<div class="row" style="display:flex;align-items:flex-start;" onclick="toggleBulkSel_(\''+r.id+'\')">'+'<label style="display:flex;align-items:flex-start;width:100%;cursor:pointer;">'+chk+'<div style="flex:1;">'+top+lockBadge+body+'</div></label></div>';
+  }
+  return '<div class="row" onclick="openModal(\''+r.id+'\')">'+top+lockBadge+body+'</div>';
 }
 
 function addNetaRow(p,t){
@@ -713,7 +947,9 @@ async function saveRec(){
   var dt=document.getElementById('w-date').value; if(!dt){toast('日付を入力してください');return;}
   var kid=IS_KAI?curKaiId:document.getElementById('w-kai').value; if(!kid){toast('会を選んでください');return;}
   var tval=document.getElementById('w-title').value.trim();
-  var content=(tval?'▼'+tval+'\n':'')+getNetaContent();
+  var kaisuEl=document.getElementById('w-kaisu');
+  var kaisuVal=kaisuEl&&kaisuEl.value.trim()?parseInt(kaisuEl.value.trim()):null;
+  var content=(kaisuVal?'◆第'+kaisuVal+'回\n':'')+(tval?'▼'+tval+'\n':'')+getNetaContent();
   var photo='';
   var btn=document.getElementById('save-btn'); btn.textContent='保存中…'; btn.disabled=true;
   var prog=document.getElementById('save-prog');
@@ -749,7 +985,10 @@ async function saveRec(){
   } catch(e){ btn.textContent='💾 保存する'; btn.disabled=false; prog.textContent=''; toast('エラー:'+String(e.message||e)); }
 }
 async function delRec(){
-  if(!curId||!confirm('削除しますか？'))return;
+  if(!curId)return;
+  var r=allRecs.find(function(x){return x.id===curId;});
+  if(r&&isLockedRec(r)){toast('🔒 この記録はロック中です');return;}
+  if(!confirm('削除してよろしいですか？'))return;
   await gasGet('deleteRecord',{id:curId});
   // 連続講談は専用スプレッドシートからも削除
   if(URL_KAI==='連続／365'){
@@ -858,6 +1097,7 @@ function doSearch(){
 }
 
 async function dlCSV(){
+  if(!confirm('CSVをエクスポートしてよろしいですか？'))return;
   var recs=getFiltered();
   var rows=[['ID','日付','会ID','会名','内容','写真リンク','登録日']];
   recs.forEach(function(r){rows.push([r.id,r.date,r.kaiId,IS_KAI&&T?T.title:kaiName_(r.kaiId),r.content,r.photo,r.created||'']);});
@@ -866,6 +1106,7 @@ async function dlCSV(){
   a.download='ネタ帳_'+td()+'.csv'; a.click(); toast('✓ CSV完了');
 }
 async function dlJSON(){
+  if(!confirm('JSONをエクスポートしてよろしいですか？'))return;
   var recs=getFiltered();
   var myKai=IS_KAI?kaiList.find(function(k){return k.name===URL_KAI;}):null;
   var kl=myKai?[{id:myKai.id,name:myKai.name,order:1,showInTab:true,fixed:true}]:kaiList;
@@ -876,6 +1117,7 @@ async function dlJSON(){
 
 async function importFile(input,type){
   var file=input.files[0]; if(!file)return;
+  if(!confirm('「'+file.name+'」をインポートしてよろしいですか？\n（既存のデータと統合されます）')){input.value='';return;}
   var prog=document.getElementById('imp-prog-'+type); prog.textContent='読み込み中…';
   var reader=new FileReader();
   reader.onload=async function(e){
@@ -885,7 +1127,14 @@ async function importFile(input,type){
     var res=await gasGet('importFinalize',{key:key,parts:cr.count,type:type}); if(!res||res.error){prog.textContent='エラー:'+(res&&res.error||'');return;}
     prog.textContent='✓ 追加:'+res.added+'件 更新:'+res.updated+'件';
     setTimeout(async function(){
-      if(!IS_KAI){var kais=await gasGet('getKaiList');if(Array.isArray(kais)){kaiList=kais;buildKaiSelect();}}
+      if(!IS_KAI){
+        var kais=await gasGet('getKaiList');
+        if(Array.isArray(kais)){
+          var sId2={},sN2=[],cl2=[];
+          kais.forEach(function(k){if(!sId2[k.id]&&sN2.indexOf(k.name)<0){sId2[k.id]=true;sN2.push(k.name);if(k.showInTab===undefined)k.showInTab=true;cl2.push(k);}});
+          kaiList=cl2; buildKaiSelect(); renderKaiTabs();
+        }
+      }
       var recs=await gasGet('getAllRecords'); var all=Array.isArray(recs)?recs:[];
       allRecs=IS_KAI?all.filter(function(r){return r.kaiId===curKaiId;}):all;
       renderStats();renderYearTabs();if(!IS_KAI)renderKaiTabs();renderHome();
@@ -904,8 +1153,8 @@ async function doRemoveDupes(){
   renderStats();renderYearTabs();if(!IS_KAI)renderKaiTabs();renderHome();
 }
 async function clearAll(){
-  if(!confirm('全データを削除します。よろしいですか？'))return;
-  if(!confirm('本当に削除しますか？'))return;
+  if(!confirm('⚠️ 全記録データを削除します。\nこの操作は取り消せません。\nよろしいですか？'))return;
+  if(!confirm('本当に削除してよろしいですか？\n（先にエクスポートしてバックアップを取ることをおすすめします）'))return;
   toast('削除中…'); await gasGet('clearAll'); allRecs=[];
   renderStats();renderYearTabs();renderKaiTabs();renderHome(); toast('✓ 全データを削除しました');
 }
