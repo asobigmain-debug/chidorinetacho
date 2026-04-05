@@ -168,7 +168,7 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
     <input type="hidden" id="w-date">
   </div>
     <div id="kai-select-wrap"><label class="lbl">会</label><select id="w-kai" class="sel" onchange="onKaiChange()"></select></div>
-    <div id="kaisu-wrap" style="display:none;"><label class="lbl">第◯回（任意）</label><input type="number" id="w-kaisu" class="inp" placeholder="例：47　※空欄でも可" min="1"></div>
+    <div id="kaisu-wrap"><label class="lbl">第◯回 <span style="font-size:0.72rem;color:#888;font-weight:normal;">（空欄なら記録なし）</span></label><input type="number" id="w-kaisu" class="inp" placeholder="自動入力（変更可）" min="1" style="max-width:120px;"></div>
     <div><label class="lbl">当日の会名・タイトル（変更可）</label><input type="text" id="w-title" class="inp" placeholder=""></div>
     <div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
@@ -206,7 +206,16 @@ body::before{content:"";position:fixed;inset:0;background:url("data:image/svg+xm
       <button class="btn btn-s btn-sm" onclick="dlJSON()">📥 JSON</button>
     </div>
   </div>
-  <div class="card"><div class="sec">年ロック管理</div>
+  <div class="card"><div class="sec">回数の一括割り当て</div>
+    <div id="kaisu-batch-sec" style="margin-bottom:16px;">
+      <div style="font-size:0.8rem;color:var(--ink2);margin-bottom:8px;">選択した会の記録に、日付順で第1回・第2回…と回数を自動割り当てします。<br>すでに回数がある記録は上書きされます。</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+        <select id="batch-kai-sel" class="sel" style="flex:1;min-width:120px;"></select>
+        <button class="btn btn-p btn-sm" onclick="batchAssignKaisu_()">🔢 回数を一括割り当て</button>
+      </div>
+      <div id="batch-prog" style="font-size:0.8rem;color:var(--grn);"></div>
+    </div>
+    <div class="sec">年ロック管理</div>
     <div id="lock-section" style="margin-bottom:16px;">
       <div style="font-size:0.8rem;color:var(--ink2);margin-bottom:8px;">年単位で記録をロック（編集・削除不可）します。大元ネタ帳からのみ操作できます。</div>
       <div id="lock-year-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
@@ -424,14 +433,16 @@ function go(id){
   document.getElementById('tab-area').style.display=id==='home'?'':'none';
   window.scrollTo(0,0);
   if(id==='home') renderHome();
-  if(id==='data'&&!IS_KAI) renderLockYears_();
+  if(id==='data'&&!IS_KAI){
+    renderLockYears_();
+    // 一括割り当て用セレクトを更新
+    var bs=document.getElementById('batch-kai-sel');
+    if(bs){ bs.innerHTML=''; kaiList.forEach(function(k){ var o=document.createElement('option'); o.value=k.id; o.textContent=k.name; bs.appendChild(o); }); }
+  }
   // 記録画面を開くとき、タイトルにデフォルト値をセット
   if(id==='write'){
     // 回数欄：IS_KAI/大元両方で毎回更新
-    var _myK=IS_KAI?kaiList.find(function(k){return k.name===URL_KAI;}):kaiList.find(function(k){return k.id===(document.getElementById('w-kai')?document.getElementById('w-kai').value:'');});
-    var _kw=document.getElementById('kaisu-wrap');
-    if(_kw) _kw.style.display=(_myK&&_myK.useKaisu)?'':'none';
-    if(!IS_KAI) onKaiChange();
+    updateKaisuWrap_();
     if(!curId){
       var el=document.getElementById('w-title');
       if(el && !el.value && T && T.title) el.value=T.title;
@@ -508,10 +519,7 @@ window.addEventListener('load', async function(){
     kaiList = cleanKais;
     if(!IS_KAI){ buildKaiSelect(); renderKaiTabs(); }
     // 各会専用モードで回数欄を制御
-    // IS_KAI・大元両方でkaisu-wrapを制御
-    var _initK=IS_KAI?kaiList.find(function(k){return k.name===URL_KAI;}):null;
-    var _initKw=document.getElementById('kaisu-wrap');
-    if(_initKw&&IS_KAI) _initKw.style.display=(_initK&&_initK.useKaisu)?'':'none';
+    // kaisu-wrapは常時表示のため制御不要
 
     var recs = await gasGet('getAllRecords');
     if(!recs || recs.error || !Array.isArray(recs)){
@@ -643,13 +651,17 @@ function toggleKaisu(id){
   saveKais_(function(){toast(k.name+'の回数表示を'+(k.useKaisu?'オン':'オフ')+'にしました');});
 }
 
+// 回数欄の更新（常に表示・新規時のみ自動計算）
+function updateKaisuWrap_(){
+  if(!curId){
+    var el=document.getElementById('w-kaisu');
+    if(el&&!el.value) autoCalcKaisu();
+  }
+}
+
 // 会選択変更時に回数欄の表示/非表示を切り替え
 function onKaiChange(){
-  var kid=document.getElementById('w-kai').value;
-  var k=kaiList.find(function(k){return k.id===kid;});
-  var wrap=document.getElementById('kaisu-wrap');
-  if(wrap) wrap.style.display=(k&&k.useKaisu)?'':'none';
-  if(k&&k.useKaisu) autoCalcKaisu();
+  if(!curId){ var el=document.getElementById('w-kaisu'); if(el) el.value=''; autoCalcKaisu(); }
 }
 
 // 回数自動計算：同じ会の記録から前後を推算
@@ -820,6 +832,43 @@ async function toggleYearLock_(kaiId, year, isLocked){
   }
 }
 
+// === 一括回数割り当て ===
+async function batchAssignKaisu_(){
+  var sel=document.getElementById('batch-kai-sel'); if(!sel)return;
+  var kaiId=sel.value;
+  var kName=(kaiList.find(function(k){return k.id===kaiId;})||{}).name||kaiId;
+  var targets=allRecs.filter(function(r){return r.kaiId===kaiId;}).sort(function(a,b){return a.date>b.date?1:-1;});
+  if(!targets.length){toast('記録がありません');return;}
+  if(!confirm('「'+kName+'」の'+targets.length+'件に第1回〜第'+targets.length+'回を日付順で割り当てます。
+よろしいですか？'))return;
+  var prog=document.getElementById('batch-prog');
+  prog.textContent='処理中…';
+  var ok=0;
+  for(var i=0;i<targets.length;i++){
+    var r=targets[i];
+    // ◆▼を除いた本文だけ取り出す
+    var lines=(r.content||'').split('\n').filter(function(l){return l.trim()&&l.charAt(0)!=='◆'&&l.charAt(0)!=='▼';});
+    // タイトルを抽出
+    var oldTitle='';
+    (r.content||'').split('\n').forEach(function(l){if(l.charAt(0)==='▼')oldTitle=l.slice(1);});
+    var newContent='◆第'+(i+1)+'回\n'+(oldTitle?'▼'+oldTitle+'\n':'')+lines.join('\n');
+    // GASに保存
+    var key='bt_'+Date.now()+'_'+i;
+    var SZ=1500,parts=[],ci;
+    for(ci=0;ci<newContent.length;ci+=SZ)parts.push(newContent.slice(ci,ci+SZ));
+    if(!parts.length)parts=[''];
+    for(var s=0;s<parts.length;s++) await gasGet('saveTemp',{key:key,part:parts[s],index:s});
+    var res=await gasGet('saveRecord',{id:r.id,date:r.date,kaiId:r.kaiId,key:key,parts:parts.length,photo:r.photo||''});
+    if(res&&!res.error){
+      r.content=newContent; ok++;
+    }
+    prog.textContent='処理中… '+ok+'/'+targets.length+'件';
+  }
+  // 表示更新
+  prog.textContent='✓ '+ok+'件に回数を割り当てました';
+  renderStats(); renderYearTabs(); if(!IS_KAI)renderKaiTabs(); renderHome();
+}
+
 // === 一括選択モード ===
 var bulkMode_=false, bulkSel_=new Set();
 function toggleBulkMode_(){
@@ -881,10 +930,11 @@ function rowHtml(r){
   var kaisuLine='', tl='';
   var bodyLines=[];
   lines.forEach(function(l){
-    if(!l.trim()) return;
-    if(l.charAt(0)==='◆'){ kaisuLine=l.slice(1); return; }
-    if(l.charAt(0)==='▼'){ tl=l.slice(1); return; }
-    bodyLines.push(l);
+    var lt=l.replace(/\r/g,'').trim(); // \r\n対応
+    if(!lt) return;
+    if(lt.charCodeAt(0)===0x25C6){ kaisuLine=lt.slice(1); return; }
+    if(lt.charCodeAt(0)===0x25BC){ tl=lt.slice(1); return; }
+    bodyLines.push(lt);
   });
   // ② 本文テーブル生成（◆▼は含まない）
   var body='';
@@ -940,13 +990,14 @@ function getNetaContent(){
 function setNetaContent(c){
   var area=document.getElementById('neta-rows'); area.innerHTML='';
   if(!c){addNetaRow();return;}
-  // ◆回数行・▼タイトル行は絶対スキップ（editRecで解析済みのため）
+  // ◆回数行・▼タイトル行は絶対スキップ
   c.split('\n').forEach(function(l){
-    if(!l.trim()) return;
-    if(l.charAt(0)==='◆'||l.charAt(0)==='▼') return;
-    var m=l.match(/^【(.*)】(.*)$/);
+    var lt=l.replace(/\r/g,'').trim();
+    if(!lt) return;
+    if(lt.charCodeAt(0)===0x25C6||lt.charCodeAt(0)===0x25BC) return;
+    var m=lt.match(/^【(.*)】(.*)$/);
     if(m) addNetaRow(m[1],m[2]);
-    else if(l.trim()) addNetaRow('',l.trim());
+    else addNetaRow('',lt);
   });
   if(!area.children.length) addNetaRow();
 }
@@ -1033,6 +1084,7 @@ function clearForm(){
   if(document.getElementById('w-kaisu')) document.getElementById('w-kaisu').value='';
   document.getElementById('del-btn').style.display='none';
   document.getElementById('write-sec').textContent='記録する'; curId=null;
+  updateKaisuWrap_();
   // 回数の自動計算
   setTimeout(function(){
     if(document.getElementById('kaisu-wrap') && document.getElementById('kaisu-wrap').style.display!=='none'){
@@ -1046,25 +1098,20 @@ function openModal(id){
   var lines=r.content?r.content.split('\n'):[];
   var tl='', kaisuM='';
   var nl=lines.filter(function(l){
-    if(!l.trim()) return false;
-    if(l.charAt(0)==='◆'){kaisuM=l.slice(1);return false;}
-    if(l.charAt(0)==='▼'){tl=l.slice(1);return false;}
+    var lt=l.replace(/\r/g,'').trim();
+    if(!lt) return false;
+    if(lt.charCodeAt(0)===0x25C6){kaisuM=lt.slice(1);return false;}
+    if(lt.charCodeAt(0)===0x25BC){tl=lt.slice(1);return false;}
     return true;
   });
   var tbl='';
   if(nl.length){tbl='<table class="mo-neta"><tr><th>演者</th><th>演目</th></tr>'; nl.forEach(function(l){var m=l.match(/^【(.*)】(.*)$/); tbl+='<tr><td>'+(m?escH(m[1]):'')+'</td><td>'+(m?escH(m[2]):escH(l))+'</td></tr>';}); tbl+='</table>';}
   var kn=!IS_KAI?kaiName_(r.kaiId):(T?T.title:'');
-  // モーダルの回数・タイトル行
-  var moKaisu='',moTl=tl;
-  if(lines.length&&lines[0]&&lines[0].slice(0,1)==='◆'){
-    moKaisu=lines[0].slice(1);
-    var restLines=lines.slice(1);
-    if(restLines.length&&restLines[0]&&restLines[0].charAt(0)==='▼'){moTl=restLines[0].slice(1);}
-  }
+  // filterで取得済みのkaisuM/tlをそのまま使う
   var h='';
-  if(moKaisu) h+='<div style="font-size:.85rem;color:var(--gold2);font-weight:600;margin-bottom:2px;">'+escH(moKaisu)+'</div>';
-  h+='<div class="mo-name">'+(moTl?escH(moTl):escH(kn))+'</div>';
-  if(moTl&&kn) h+='<div style="font-size:.78rem;color:var(--gold2);margin-bottom:4px;">'+escH(kn)+'</div>';
+  if(kaisuM) h+='<div style="font-size:.85rem;color:var(--gold2);font-weight:600;margin-bottom:2px;">'+escH(kaisuM)+'</div>';
+  h+='<div class="mo-name">'+(tl?escH(tl):escH(kn))+'</div>';
+  if(tl&&kn) h+='<div style="font-size:.78rem;color:var(--gold2);margin-bottom:4px;">'+escH(kn)+'</div>';
   h+='<div class="mo-date">'+fdate(r.date)+'</div>'+tbl;
   if(r.photo&&r.photo.trim()) h+='<div style="margin-top:8px;"><a href="'+escH(r.photo)+'" target="_blank" style="color:var(--gold2);font-size:.82rem;word-break:break-all;">📷 '+escH(r.photo)+'</a></div>';
   h+='<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">'
