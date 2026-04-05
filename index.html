@@ -427,14 +427,11 @@ function go(id){
   if(id==='data'&&!IS_KAI) renderLockYears_();
   // 記録画面を開くとき、タイトルにデフォルト値をセット
   if(id==='write'){
-    // 回数欄の表示を毎回更新
-    if(IS_KAI){
-      var myK=kaiList.find(function(k){return k.name===URL_KAI;});
-      var kw=document.getElementById('kaisu-wrap');
-      if(kw) kw.style.display=(myK&&myK.useKaisu)?'':'none';
-    } else {
-      onKaiChange();
-    }
+    // 回数欄：IS_KAI/大元両方で毎回更新
+    var _myK=IS_KAI?kaiList.find(function(k){return k.name===URL_KAI;}):kaiList.find(function(k){return k.id===(document.getElementById('w-kai')?document.getElementById('w-kai').value:'');});
+    var _kw=document.getElementById('kaisu-wrap');
+    if(_kw) _kw.style.display=(_myK&&_myK.useKaisu)?'':'none';
+    if(!IS_KAI) onKaiChange();
     if(!curId){
       var el=document.getElementById('w-title');
       if(el && !el.value && T && T.title) el.value=T.title;
@@ -456,10 +453,11 @@ function showErr(msg){
 }
 
 function onDateChange_(){
-  var k=IS_KAI?kaiList.find(function(k){return k.name===URL_KAI;}):kaiList.find(function(k){return k.id===document.getElementById('w-kai').value;});
+  var k=IS_KAI?kaiList.find(function(k){return k.name===URL_KAI;}):kaiList.find(function(k){return k.id===(document.getElementById('w-kai')?document.getElementById('w-kai').value:'');});
   if(k&&k.useKaisu){
+    // 日付を変えたら回数を再計算（手動入力を尊重するため値クリア後に計算）
     var el=document.getElementById('w-kaisu');
-    if(el&&!el.value) autoCalcKaisu();
+    if(el&&!curId) { el.value=''; autoCalcKaisu(); } // 新規入力時のみ再計算
   }
 }
 
@@ -510,11 +508,10 @@ window.addEventListener('load', async function(){
     kaiList = cleanKais;
     if(!IS_KAI){ buildKaiSelect(); renderKaiTabs(); }
     // 各会専用モードで回数欄を制御
-    if(IS_KAI){
-      var myK=kaiList.find(function(k){return k.name===URL_KAI;});
-      var kw=document.getElementById('kaisu-wrap');
-      if(kw) kw.style.display=(myK&&myK.useKaisu)?'':'none';
-    }
+    // IS_KAI・大元両方でkaisu-wrapを制御
+    var _initK=IS_KAI?kaiList.find(function(k){return k.name===URL_KAI;}):null;
+    var _initKw=document.getElementById('kaisu-wrap');
+    if(_initKw&&IS_KAI) _initKw.style.display=(_initK&&_initK.useKaisu)?'':'none';
 
     var recs = await gasGet('getAllRecords');
     if(!recs || recs.error || !Array.isArray(recs)){
@@ -661,23 +658,29 @@ function autoCalcKaisu(){
   if(!dt) return;
   var kid=IS_KAI?curKaiId:document.getElementById('w-kai').value;
   if(!kid) return;
-  // 同じ会の記録を日付順に並べる
-  var recs=allRecs.filter(function(r){return r.kaiId===kid&&r.content&&r.content.slice(0,1)==='◆';})
+  var el=document.getElementById('w-kaisu');
+  if(!el||el.value) return; // 既入力はスキップ
+
+  // 同会の全記録を日付昇順に
+  var allKaiRecs=allRecs.filter(function(r){return r.kaiId===kid;})
     .sort(function(a,b){return a.date>b.date?1:-1;});
-  if(!recs.length) return;
-  // 日付より前の最新レコードの回数＋1
+  if(!allKaiRecs.length) return;
+
+  // dt より前の直近レコードを探す
   var prev=null;
-  for(var i=recs.length-1;i>=0;i--){
-    if(recs[i].date<dt){prev=recs[i];break;}
+  for(var i=allKaiRecs.length-1;i>=0;i--){
+    if(allKaiRecs[i].date<dt){prev=allKaiRecs[i];break;}
   }
-  if(prev){
-    var m=prev.content.match(/◆第(\d+)回/);
-    if(m){
-      var nextNum=parseInt(m[1])+1;
-      // 既に入力済みでなければセット
-      var el=document.getElementById('w-kaisu');
-      if(el&&!el.value) el.value=nextNum;
-    }
+  if(!prev){el.value=1; return;} // 最初の記録なら第1回
+
+  // 前回レコードから◆第N回を探す
+  var m=prev.content?prev.content.match(/◆第(\d+)回/):null;
+  if(m){
+    el.value=parseInt(m[1])+1;
+  } else {
+    // ◆がない場合：前回までの件数+1
+    var countBefore=allKaiRecs.filter(function(r){return r.date<=prev.date;}).length;
+    el.value=countBefore+1;
   }
 }
 function addKai(){
@@ -926,7 +929,14 @@ function getNetaContent(){
 function setNetaContent(c){
   var area=document.getElementById('neta-rows'); area.innerHTML='';
   if(!c){addNetaRow();return;}
-  c.split('\n').forEach(function(l){ var m=l.match(/^【(.*)】(.*)$/); if(m)addNetaRow(m[1],m[2]); else if(l.trim())addNetaRow('',l.trim()); });
+  // ◆回数行・▼タイトル行は絶対スキップ（editRecで解析済みのため）
+  c.split('\n').forEach(function(l){
+    if(!l.trim()) return;
+    if(l.charAt(0)==='◆'||l.charAt(0)==='▼') return;
+    var m=l.match(/^【(.*)】(.*)$/);
+    if(m) addNetaRow(m[1],m[2]);
+    else if(l.trim()) addNetaRow('',l.trim());
+  });
   if(!area.children.length) addNetaRow();
 }
 function resetRows_(){
@@ -1064,21 +1074,29 @@ function editRec(id){
     curId=r.id; document.getElementById('write-sec').textContent='記録を編集';
     initDateSelects_(r.date);
     if(!IS_KAI){var sel=document.getElementById('w-kai');sel.value=r.kaiId||'';if(!sel.value&&sel.options.length)sel.selectedIndex=0;}
-    var lines=(r.content||'').split('\n');
-    // 編集時に回数・タイトルを復元
-    var eLines=(r.content||'').split('\n'), eIdx=0;
-    if(eLines[0]&&eLines[0].slice(0,1)==='◆'){
-      var eK=eLines[0].slice(1).replace(/[^0-9]/g,'');
-      if(document.getElementById('w-kaisu')) document.getElementById('w-kaisu').value=eK;
-      eIdx=1;
+    // 編集時に回数・タイトルを復元（◆▼をどの行にあっても対応）
+    var eLines=(r.content||'').split('\n');
+    var eKaisu='', eTitle='', eIdx=0;
+    // ◆第N回を探す
+    for(var ei=0;ei<eLines.length;ei++){
+      if(eLines[ei]&&eLines[ei].charAt(0)==='◆'){
+        eKaisu=eLines[ei].slice(1).replace(/[^0-9]/g,'');
+        eIdx=ei+1; break;
+      }
     }
-    if(eLines[eIdx]&&eLines[eIdx].charAt(0)==='▼'){
-      document.getElementById('w-title').value=eLines[eIdx].slice(1);
-      setNetaContent(eLines.slice(eIdx+1).join('\n'));
-    } else {
-      document.getElementById('w-title').value='';
-      setNetaContent(eLines.slice(eIdx).join('\n'));
+    // ▼タイトルを探す
+    for(var ei2=0;ei2<eLines.length;ei2++){
+      if(eLines[ei2]&&eLines[ei2].charAt(0)==='▼'){
+        eTitle=eLines[ei2].slice(1);
+        if(ei2>=eIdx) eIdx=ei2+1;
+        break;
+      }
     }
+    if(document.getElementById('w-kaisu')) document.getElementById('w-kaisu').value=eKaisu;
+    document.getElementById('w-title').value=eTitle;
+    // ◆▼を除いた残りをネタ行に
+    var netaLines=eLines.filter(function(l){return l.charAt(0)!=='◆'&&l.charAt(0)!=='▼';});
+    setNetaContent(netaLines.join('\n'));
     // photo欄なし
     document.getElementById('del-btn').style.display=''; go('write');
   },200);
