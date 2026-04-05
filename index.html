@@ -850,8 +850,7 @@ async function batchAssignKaisu_(){
   var kName=(kaiList.find(function(k){return k.id===kaiId;})||{}).name||kaiId;
   var targets=allRecs.filter(function(r){return r.kaiId===kaiId;}).sort(function(a,b){return a.date>b.date?1:-1;});
   if(!targets.length){toast('記録がありません');return;}
-  if(!confirm('「'+kName+'」の'+targets.length+'件に第1回〜第'+targets.length+'回を日付順で割り当てます。
-よろしいですか？'))return;
+  if(!confirm('「'+kName+'」の'+targets.length+'件に第1回〜第'+targets.length+'回を日付順で割り当てます。よろしいですか？'))return;
   var prog=document.getElementById('batch-prog');
   prog.textContent='処理中…';
   var ok=0;
