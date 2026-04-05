@@ -876,28 +876,39 @@ async function executeBulkMove_(){
 }
 
 function rowHtml(r){
+  // ① ◆▼を先に解析してから本文行を作る
   var lines=r.content?r.content.split('\n'):[];
-  var tl='',nl=lines;
-  if(lines.length&&lines[0]&&lines[0].charAt(0)==='▼'){tl=lines[0].slice(1);nl=lines.slice(1);}
+  var kaisuLine='', tl='';
+  var bodyLines=[];
+  lines.forEach(function(l){
+    if(!l.trim()) return;
+    if(l.charAt(0)==='◆'){ kaisuLine=l.slice(1); return; }
+    if(l.charAt(0)==='▼'){ tl=l.slice(1); return; }
+    bodyLines.push(l);
+  });
+  // ② 本文テーブル生成（◆▼は含まない）
   var body='';
-  if(nl.length){
+  if(bodyLines.length){
     body='<table class="neta-tbl">';
-    nl.forEach(function(l,i){var m=l.match(/^【(.*)】(.*)$/); body+='<tr'+(i%2?' style="background:rgba(214,232,208,0.3)"':'')+'><td>'+(m?escH(m[1]):'')+'</td><td>'+(m?escH(m[2]):escH(l))+'</td></tr>';});
+    bodyLines.forEach(function(l,i){
+      var m=l.match(/^【(.*)】(.*)$/);
+      body+='<tr'+(i%2?' style="background:rgba(214,232,208,0.3)"':'')+'>'
+        +'<td>'+(m?escH(m[1]):'')+'</td>'
+        +'<td>'+(m?escH(m[2]):escH(l))+'</td></tr>';
+    });
     body+='</table>';
   }
+  // ③ ヘッダ行
   var kn=!IS_KAI?kaiName_(r.kaiId):'';
-  // 回数行を検出（◆第○回）
-  var kaisuLine='';
-  if(lines.length&&lines[0]&&lines[0].slice(0,1)==='◆'){kaisuLine=lines[0].slice(1);nl=lines.slice(1);if(nl.length&&nl[0]&&nl[0].charAt(0)==='▼'){tl=nl[0].slice(1);nl=nl.slice(1);}}
   var kaisuBadge=kaisuLine?'<span class="row-badge" style="background:rgba(107,140,58,0.2);font-weight:600;">'+escH(kaisuLine)+'</span>':'';
   var top='<div class="row-top">'+kaisuBadge+(tl?'<span class="row-ttl">'+escH(tl)+'</span>':'')+(kn?'<span class="row-badge">'+escH(kn)+'</span>':'')+'<span class="row-date">'+fdate(r.date)+'</span></div>';
   var isLocked=isLockedRec(r);
   var lockBadge=isLocked?'<span style="font-size:0.75rem;color:#888;margin-left:4px;">🔒</span>':'';
   if(bulkMode_&&!isLocked){
     var chk='<input type="checkbox" style="width:20px;height:20px;margin-right:8px;flex-shrink:0;" '+(bulkSel_.has(r.id)?'checked':'')+' onclick="event.stopPropagation();toggleBulkSel_(\''+r.id+'\');">';
-    return '<div class="row" style="display:flex;align-items:flex-start;" onclick="toggleBulkSel_(\''+r.id+'\')">'+'<label style="display:flex;align-items:flex-start;width:100%;cursor:pointer;">'+chk+'<div style="flex:1;">'+top+lockBadge+body+'</div></label></div>';
+    return '<div class="row" style="display:flex;align-items:flex-start;" onclick="toggleBulkSel_(\''+r.id+'\')"><label style="display:flex;align-items:flex-start;width:100%;cursor:pointer;">'+chk+'<div style="flex:1;">'+top+lockBadge+body+'</div></label></div>';
   }
-  return '<div class="row" onclick="openModal(\''+r.id+'\')">'+top+lockBadge+body+'</div>';
+  return '<div class="row" onclick="openModal(\''+r.id+'\')">' +top+lockBadge+body+'</div>';
 }
 
 function addNetaRow(p,t){
@@ -1033,8 +1044,13 @@ function clearForm(){
 function openModal(id){
   var r=allRecs.find(function(x){return x.id===id;}); if(!r)return;
   var lines=r.content?r.content.split('\n'):[];
-  var tl='',nl=lines;
-  if(lines.length&&lines[0]&&lines[0].charAt(0)==='▼'){tl=lines[0].slice(1);nl=lines.slice(1);}
+  var tl='', kaisuM='';
+  var nl=lines.filter(function(l){
+    if(!l.trim()) return false;
+    if(l.charAt(0)==='◆'){kaisuM=l.slice(1);return false;}
+    if(l.charAt(0)==='▼'){tl=l.slice(1);return false;}
+    return true;
+  });
   var tbl='';
   if(nl.length){tbl='<table class="mo-neta"><tr><th>演者</th><th>演目</th></tr>'; nl.forEach(function(l){var m=l.match(/^【(.*)】(.*)$/); tbl+='<tr><td>'+(m?escH(m[1]):'')+'</td><td>'+(m?escH(m[2]):escH(l))+'</td></tr>';}); tbl+='</table>';}
   var kn=!IS_KAI?kaiName_(r.kaiId):(T?T.title:'');
