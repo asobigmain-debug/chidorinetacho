@@ -482,11 +482,11 @@ function onDateChange_(){
 }
 
 window.addEventListener('load', async function(){
-  // 全体ロードを30秒でタイムアウト
   var _loadTimer=setTimeout(function(){
-    showErr('GASとの通信がタイムアウトしました。\nGASが正しくデプロイされているか確認してください。');
+    showErr('GASとの通信がタイムアウトしました。\n再読み込みしてください。');
   }, 30000);
-  try {
+
+  // UI初期化
   var title = T ? T.title : 'ネタ帳';
   document.getElementById('app-title').textContent = title;
   document.title = title;
@@ -495,36 +495,32 @@ window.addEventListener('load', async function(){
   curYear = new Date().getFullYear().toString();
   initDateSelects_(td());
   document.getElementById('export-note').textContent = IS_KAI ? 'この会のデータのみエクスポートします' : '現在の絞り込みのデータをエクスポートします';
-
   if(IS_KAI && T){
     if(T.first) addNetaRow(T.first,'');
     for(var i=(T.first?1:0);i<T.rows;i++) addNetaRow('','');
   } else {
     addNetaRow('','');
   }
-  // 各会専用モードの回数欄は読み込み後に制御（下のinitKaisuWrap_で処理）
 
   try {
+    // ① 会マスタ取得
     var kais = await gasGet('getKaiList', {}, 20000);
     if(!kais || kais.error || !Array.isArray(kais)){
-      showErr('GAS通信エラー\n\nエラー: ' + (kais&&kais.error||'データを取得できませんでした') + '\n\nGAS URLが正しいか、デプロイが完了しているか確認してください。');
+      clearTimeout(_loadTimer);
+      showErr('会マスタ取得エラー: ' + (kais&&kais.error||'取得できませんでした'));
       return;
     }
-    // 固定kaiを先に確保し、残りを重複除去して結合
+    // 固定kaiを先頭に、重複除去して結合
     var seenId={}, seenName={}, cleanKais=[];
-    // 固定kaiを先頭に配置
     FIXED_KAIS.forEach(function(fk){
       var exist=kais.find(function(k){return k.id===fk.id;});
       var k=exist ? Object.assign({},exist) : {id:fk.id,name:fk.name,order:cleanKais.length+1,showInTab:true,fixed:true};
       k.fixed=true; k.showInTab=true;
-      if(k.showInTab===undefined) k.showInTab=true;
       seenId[k.id]=true; seenName[k.name]=true;
       cleanKais.push(k);
     });
-    // 固定以外を追加
     kais.forEach(function(k){
-      if(!k.id || seenId[k.id]) return;
-      if(seenName[k.name]) return;
+      if(!k.id||seenId[k.id]||seenName[k.name]) return;
       seenId[k.id]=true; seenName[k.name]=true;
       if(k.showInTab===undefined) k.showInTab=true;
       if(k.fixed===undefined) k.fixed=false;
@@ -532,22 +528,19 @@ window.addEventListener('load', async function(){
     });
     kaiList = cleanKais;
     if(!IS_KAI){ buildKaiSelect(); renderKaiTabs(); }
-    // 各会専用モードで回数欄を制御
-    // kaisu-wrapは常時表示のため制御不要
 
+    // ② 記録取得
     var recs = await gasGet('getAllRecords', {}, 20000);
     if(!recs || recs.error || !Array.isArray(recs)){
-      showErr('記録データ取得エラー: ' + (recs&&recs.error||'データを取得できませんでした'));
+      clearTimeout(_loadTimer);
+      showErr('記録取得エラー: ' + (recs&&recs.error||'取得できませんでした'));
       return;
     }
-
     if(IS_KAI){
       var myKai = kaiList.find(function(k){ return k.name===URL_KAI; });
       curKaiId = myKai ? myKai.id : null;
       allRecs = curKaiId ? recs.filter(function(r){ return r.kaiId===curKaiId; }) : [];
-
-      // 連続講談は専用スプレッドシートからも読み込む
-      if(URL_KAI === '連続'){
+      if(URL_KAI==='連続'){
         var rz = await renzGet('getRecords');
         renzoukuRecs = Array.isArray(rz) ? rz : [];
       }
@@ -555,18 +548,17 @@ window.addEventListener('load', async function(){
       allRecs = recs;
     }
 
-    // ロック状態読み込み（失敗しても続行）
-    try {
-      var ls = await gasGet('getLockStatus', {}, 5000); // 5秒タイムアウト
-      if(ls && Array.isArray(ls.lockedKeys)) lockedKeys = ls.lockedKeys;
-    } catch(le){ /* ロック取得失敗は無視 */ }
+    // ③ ロック状態取得（失敗しても続行）
+    var ls = await gasGet('getLockStatus', {}, 5000);
+    if(ls && Array.isArray(ls.lockedKeys)) lockedKeys = ls.lockedKeys;
+
     clearTimeout(_loadTimer);
     renderStats(); renderYearTabs(); renderHome();
+
   } catch(e){
     clearTimeout(_loadTimer);
-    showErr('エラー: ' + String(e.message||e) + '\n\nGASのデプロイURLを確認し、再読み込みしてください。');
+    showErr('読み込みエラー: ' + String(e.message||e));
   }
-  } finally { clearTimeout(_loadTimer); }
 });
 
 function renderStats(){
